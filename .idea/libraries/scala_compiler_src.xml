@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="scala-compiler-src">
+    <CLASSES />
+    <JAVADOC />
+    <SOURCES>
+      <root url="jar://$USER_HOME$/persistent/scala-2.11.0-M4/src/scala-compiler-src.jar!/" />
+    </SOURCES>
+  </library>
+</component>
