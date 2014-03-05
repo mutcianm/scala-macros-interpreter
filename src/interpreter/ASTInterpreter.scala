@@ -52,6 +52,16 @@ class ASTInterpreter {
           case 1 => a: Any => currentFunction = f; updateArgs(List(a)); val ret = processExpr(body); currentFunction = oldFunc; ret
           case 2 => (a: Any,b: Any) => currentFunction = f; updateArgs(List(a,b)); val ret = processExpr(body); currentFunction = oldFunc; ret
         }
+      case it@Select(qualifier, name) =>
+//        val a = qualifier.symbol.newModuleAndClassSymbol(name)
+//        val c = rm.reflectModule(a._1)
+        val sdf = qualifier.symbol match {
+          case ident: ModuleSymbol =>
+            val c =  rm.reflectModule(ident)
+            val a = c.instance
+            //throws ScalaReflectionException
+            val b = rm.reflect(a).reflectModule(c.symbol.newModuleAndClassSymbol(name)._1).instance
+        }
 
       case other => processExpr(other)
     }
@@ -84,7 +94,7 @@ class ASTInterpreter {
         currentFunction = oldFunc
         ret
       case Apply(f, a) =>
-        val tmp = processFunCall(f, a)
+        val tmp = processFunCall(f, a++args)
       case other =>
         println(other)
         println(other.getClass)
@@ -163,6 +173,7 @@ case class Caller(var klass:Any) {
     case _:java.lang.Integer => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Int])
     case _:java.lang.String => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[String])
     case _:java.lang.Double => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Double])
+    case _:java.lang.Long => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Long])
     case _ => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass)
   }
 
@@ -172,6 +183,7 @@ case class Caller(var klass:Any) {
       case _:java.lang.Integer => typeOf[Int]
       case _:java.lang.String => typeOf[String]
       case _:java.lang.Double => typeOf[Double]
+      case _:java.lang.Long => typeOf[Long]
       case other => runtimeMirror(getClass.getClassLoader).classSymbol(other.getClass).toType
     }
   }
@@ -186,7 +198,7 @@ case class Caller(var klass:Any) {
 
   def what(a:PolyType, b: List[Type]) = {
     val d = a.erasure.asInstanceOf[MethodType]
-    true
+    d.params.size == b.size
   }
 
   def call(methodName:String,args:List[Any]):Any = {
@@ -209,7 +221,7 @@ case class Caller(var klass:Any) {
         reflm.apply()
         //dirty hack for seq arguments
       else if (method.paramss.head.size != args.size)
-        reflm.apply(args)
+        reflm.apply(args: _*)
       else
           reflm.apply(args: _*)
       println(s"$klass.$methodName($args) => $ret")
