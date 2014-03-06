@@ -26,8 +26,12 @@ class ASTInterpreter {
         value.value
       case Ident(name) =>
         getBoundObject(name.decoded)
-      case ifExpr: If => processIf(ifExpr)
-      case label: LabelDef => processLabelDef(label)
+      case ifExpr: If =>
+        processIf(ifExpr)
+      case matchExpr: Match =>
+        processMatch(matchExpr)
+      case label: LabelDef =>
+        processLabelDef(label)
       case Block(stats, exprs) =>
         stats.foreach(processExpr)
         processExpr(exprs)
@@ -44,20 +48,22 @@ class ASTInterpreter {
     expr match {
       case Ident(name) => currentFunction.symbolTable.getOrElse(name.decoded, null)
       case it@Function(vparamss, body) =>
-        val args = vparamss.map({it => (it.name.decoded, null)})
+        val args = vparamss.map({
+          it => (it.name.decoded, null)
+        })
         val f = new FunctionDef(mutable.HashMap(), args, body)
         functionDefs.put(it.symbol, f)
         val oldFunc = currentFunction
         vparamss.size match {
           case 1 => a: Any => currentFunction = f; updateArgs(List(a)); val ret = processExpr(body); currentFunction = oldFunc; ret
-          case 2 => (a: Any,b: Any) => currentFunction = f; updateArgs(List(a,b)); val ret = processExpr(body); currentFunction = oldFunc; ret
+          case 2 => (a: Any, b: Any) => currentFunction = f; updateArgs(List(a, b)); val ret = processExpr(body); currentFunction = oldFunc; ret
         }
       case it@Select(qualifier, name) =>
-//        val a = qualifier.symbol.newModuleAndClassSymbol(name)
-//        val c = rm.reflectModule(a._1)
+        //        val a = qualifier.symbol.newModuleAndClassSymbol(name)
+        //        val c = rm.reflectModule(a._1)
         val sdf = qualifier.symbol match {
           case ident: ModuleSymbol =>
-            val c =  rm.reflectModule(ident)
+            val c = rm.reflectModule(ident)
             val a = c.instance
             //throws ScalaReflectionException
             val b = rm.reflect(a).reflectModule(c.symbol.newModuleAndClassSymbol(name)._1).instance
@@ -79,22 +85,22 @@ class ASTInterpreter {
             }
           case other =>
             val tmpVal = processExpr(other)
-            val tmpname = "*tmpval"+currentFunction.symbolTable.size.toString
+            val tmpname = "*tmpval" + currentFunction.symbolTable.size.toString
             currentFunction.symbolTable.put(tmpname, tmpVal)
             val ret = emulateCall(tmpname, name.encoded, args.map(processFunctionArg))
             currentFunction.symbolTable.remove(tmpname)
             ret
         }
       case id: Ident =>
-        val f = functionDefs.getOrElse(id.symbol,null)
-        f.symbolTable ++= args.zip(f.args).map( it => it._2._1 -> processFunctionArg(it._1))
+        val f = functionDefs.getOrElse(id.symbol, null)
+        f.symbolTable ++= args.zip(f.args).map(it => it._2._1 -> processFunctionArg(it._1))
         val oldFunc = currentFunction
         currentFunction = f
         val ret = processExpr(f.body)
         currentFunction = oldFunc
         ret
       case Apply(f, a) =>
-        val tmp = processFunCall(f, a++args)
+        val tmp = processFunCall(f, a ++ args)
       case other =>
         println(other)
         println(other.getClass)
@@ -120,10 +126,90 @@ class ASTInterpreter {
 
   private def processIf(expr: If): Any = {
     val res = processExpr(expr.cond)
-    if(res.asInstanceOf[Boolean])
+    if (res.asInstanceOf[Boolean])
       processExpr(expr.thenp)
     else
       processExpr(expr.elsep)
+  }
+
+  private def processMatch(m: Match): Any = {
+    new Matcher(m)()
+  }
+
+
+  class Matcher(val m: Match) {
+
+    val s = processExpr(m.selector)
+    var ret: Any = null
+
+    def apply(): Any = {
+      for (c <- m.cases) {
+        processCaseDef(c) match {
+          case true =>
+            if(processExpr(c.guard).asInstanceOf[Boolean])
+              return processExpr(c.body)
+          case false =>
+        }
+      }
+    }
+
+    private def processCaseDef(c: CaseDef): Boolean = {
+      c.pat match {
+        case Literal(Constant(value)) => s == value
+        case t: Typed =>
+          processTyped(t) match {
+            case Some(value) => true
+            case _ => false
+          }
+        case b: Bind =>
+          processBind(b) match {
+            case Some(name) => true
+            case _ => false
+          }
+        case apl: Apply => processMatchApply(apl)
+        case other =>
+          println(other)
+          println(other.getClass)
+          false
+      }
+
+    }
+
+
+    private def processMatchApply(apl: Apply): Boolean = {
+      apl.fun match {
+        case other =>
+          println(other)
+          println(other.getClass)
+          false
+      }
+    }
+
+    private def processBind(b: Bind): Option[String] = {
+      b.body match {
+        case t: Typed =>
+          processTyped(t) match {
+            case Some(value) =>
+              currentFunction.symbolTable.put(b.name.decoded, value)
+              Some(b.name.decoded)
+            case None => None
+          }
+        case other =>
+          println(other)
+          println(other.getClass)
+          None
+      }
+
+    }
+
+    private def processTyped(t: Typed): Option[Any] = {
+      t.expr match {
+        case Ident(name) =>
+          val b = classMap(s)
+          val a = t.tpt.symbol.asType.toType
+          if (b <:< a) Some(s) else None
+      }
+    }
   }
 
   private def processLabelDef(label: LabelDef): Any = {
@@ -135,7 +221,9 @@ class ASTInterpreter {
 
   private def processDefDef(d: DefDef): Any = {
     val locals = mutable.HashMap[String, Any]()
-    val args = d.vparamss.map(l => l.map({it => (it.name.decoded, null)})).flatten
+    val args = d.vparamss.map(l => l.map({
+      it => (it.name.decoded, null)
+    })).flatten
     functionDefs.put(d.symbol, new FunctionDef(locals, args, d.rhs))
   }
 
@@ -163,46 +251,57 @@ class ASTInterpreter {
       case other => processExpr(other)
     }
   }
+  def getType[T: TypeTag](obj: T) = typeOf[T]
+  def getTypeTag[T: TypeTag](obj: T) = typeTag[T]
+  def classMap(v: Any): Type = {
+    v match {
+      case _: java.lang.Integer => typeOf[Int]
+      case _: java.lang.String => typeOf[String]
+      case _: java.lang.Double => typeOf[Double]
+      case _: java.lang.Long => typeOf[Long]
+      case other => rm.classSymbol(other.getClass).toType
+    }
+  }
 }
 
-class FunctionDef(val symbolTable: mutable.HashMap[String,Any], val args: List[(String, Any)], val body: Tree)
 
-case class Caller(var klass:Any) {
+class FunctionDef(val symbolTable: mutable.HashMap[String, Any], val args: List[(String, Any)], val body: Tree)
+
+case class Caller(var klass: Any) {
   var calleeType: Type = classMap(klass)
   val mirror = klass match {
-    case _:java.lang.Integer => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Int])
-    case _:java.lang.String => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[String])
-    case _:java.lang.Double => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Double])
-    case _:java.lang.Long => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Long])
+    case _: java.lang.Integer => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Int])
+    case _: java.lang.String => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[String])
+    case _: java.lang.Double => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Double])
+    case _: java.lang.Long => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass.asInstanceOf[Long])
     case _ => runtimeMirror(calleeType.getClass.getClassLoader).reflect(klass)
   }
 
 
   def classMap(v: Any): Type = {
     v match {
-      case _:java.lang.Integer => typeOf[Int]
-      case _:java.lang.String => typeOf[String]
-      case _:java.lang.Double => typeOf[Double]
-      case _:java.lang.Long => typeOf[Long]
+      case _: java.lang.Integer => typeOf[Int]
+      case _: java.lang.String => typeOf[String]
+      case _: java.lang.Double => typeOf[Double]
+      case _: java.lang.Long => typeOf[Long]
       case other => runtimeMirror(getClass.getClassLoader).classSymbol(other.getClass).toType
     }
   }
 
-  def getType[T: TypeTag](obj: T) = typeOf[T]
 
-  implicit def toInt(in:Integer) = in.intValue()
+  implicit def toInt(in: Integer) = in.intValue()
 
   def typesConform(v1: List[Type], v2: List[Type]) = {
     v1.zip(v2).forall(it => it._2 <:< it._1)
   }
 
-  def what(a:PolyType, b: List[Type]) = {
+  def what(a: PolyType, b: List[Type]) = {
     val d = a.erasure.asInstanceOf[MethodType]
     d.params.size == b.size
   }
 
-  def call(methodName:String,args:List[Any]):Any = {
-//    def argtypes = args.map(classMap)
+  def call(methodName: String, args: List[Any]): Any = {
+    //    def argtypes = args.map(classMap)
 
     val argTypes = args.map(classMap)
     try {
@@ -211,19 +310,19 @@ case class Caller(var klass:Any) {
       }
       val methods = calleeType.members.collect {
         case m: MethodSymbol if !m.isPrivate && m.name.encoded == methodName => m -> m.typeSignature
-      }. collect  {
-        case (m, mt @ MethodType(qwe, _)) if typesConform(qwe.map(it => it.typeSignature), argTypes)  => m -> mt
-        case (m, mt @ PolyType(qwe, _)) if what(mt, argTypes) => m -> mt
+      }.collect {
+        case (m, mt@MethodType(qwe, _)) if typesConform(qwe.map(it => it.typeSignature), argTypes) => m -> mt
+        case (m, mt@PolyType(qwe, _)) if what(mt, argTypes) => m -> mt
       }
       val method = methods.head._1.asInstanceOf[MethodSymbol]
       val reflm = mirror.reflectMethod(method)
       val ret = if (args.isEmpty)
         reflm.apply()
-        //dirty hack for seq arguments
+      //dirty hack for seq arguments
       else if (method.paramss.head.size != args.size)
-        reflm.apply(args: _*)
+        reflm.apply(args)
       else
-          reflm.apply(args: _*)
+        reflm.apply(args: _*)
       println(s"$klass.$methodName($args) => $ret")
       ret
 
