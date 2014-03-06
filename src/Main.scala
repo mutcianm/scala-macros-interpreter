@@ -1,7 +1,6 @@
-import interpreter.{ASTInterpreter, VMInterpreter}
+import interpreter.ASTInterpreter
 
 import scala.reflect.runtime.{universe => ru}
-import scala.math._
 
 
 object Main extends App{
